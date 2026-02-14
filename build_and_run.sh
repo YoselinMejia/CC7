@@ -33,4 +33,4 @@ echo "Converting ELF to binary..."
 arm-none-eabi-objcopy -O binary bin/program.elf bin/program.bin
 
 echo "Running QEMU..."
-qemu-system-arm -M beagle -nographic -kernel bin/program.elf
+qemu-system-arm -M cubieboard -nographic -kernel bin/program.elf

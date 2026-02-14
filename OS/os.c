@@ -25,6 +25,14 @@
 #define CM_PER_BASE      0x44E00000
 #define CM_PER_TIMER2_CLKCTRL (CM_PER_BASE + 0x80)  // Timer2 Clock Control
 
+// GPIO1 (user LEDs) base and registers (AM335x)
+#define GPIO1_BASE       0x4804C000
+#define GPIO_OE          (GPIO1_BASE + 0x134)
+#define GPIO_DATAOUT     (GPIO1_BASE + 0x13C)
+
+// User LEDs are on GPIO1_21..GPIO1_24
+#define USER_LED_MASK    ((1<<21) | (1<<22) | (1<<23) | (1<<24))
+
 // ============================================================================
 // UART Functions
 // ============================================================================
@@ -89,30 +97,66 @@ void uart_putnum(unsigned int num) {
 // Timer Functions
 // ============================================================================
 
-// TODO: Implement timer initialization
-// This function should:
-// 1. Enable the timer clock (CM_PER_TIMER2_CLKCTRL = 0x2)
-// 2. Unmask IRQ 68 in the interrupt controller (INTC_MIR_CLEAR2)
-// 3. Configure interrupt priority (INTC_ILR68 = 0x0)
-// 4. Stop the timer (TCLR = 0)
-// 5. Clear any pending interrupts (TISR = 0x7)
-// 6. Set the load value for 2 seconds (TLDR = 0xFE91CA00)
-// 7. Set the counter to the same value (TCRR = 0xFE91CA00)
-// 8. Enable overflow interrupt (TIER = 0x2)
-// 9. Start timer in auto-reload mode (TCLR = 0x3)
+// Implement timer initialization
+// This function configures DMTIMER2 for a 2-second periodic interrupt
 void timer_init(void) {
-    // TODO: Implement timer initialization
-    os_write("Timer initialization not yet implemented\n");
+    // 1. Enable the timer clock
+    PUT32(CM_PER_TIMER2_CLKCTRL, 0x2);
+    
+    // 2. Unmask IRQ 68 (Timer2) in the interrupt controller
+    PUT32(INTC_MIR_CLEAR2, 0x100);  // Bit 8 corresponds to IRQ 68
+    
+    // 3. Configure interrupt priority and mode (IRQ mode, priority 0)
+    PUT32(INTC_ILR68, 0x0);
+    
+    // 4. Stop the timer
+    PUT32(TCLR, 0x0);
+    
+    // 5. Clear any pending interrupts
+    PUT32(TISR, 0x7);
+    
+    // 6. Set the timer load value for ~2 seconds at 24MHz
+    PUT32(TLDR, 0xFE91CA00);
+    
+    // 7. Set counter to the same value
+    PUT32(TCRR, 0xFE91CA00);
+    
+    // 8. Enable overflow interrupt
+    PUT32(TIER, 0x2);
+    
+    // 9. Start timer in auto-reload mode (AR=1, ST=1)
+    PUT32(TCLR, 0x3);
+    
+    os_write("Timer initialized\n");
+
+    // Configure user LEDs GPIO pins as outputs and turn them off
+    unsigned int val;
+    val = GET32(GPIO_OE);
+    val &= ~USER_LED_MASK;    // set as outputs (OE bit = 0 => output)
+    PUT32(GPIO_OE, val);
+
+    // Ensure LEDs start off
+    val = GET32(GPIO_DATAOUT);
+    val &= ~USER_LED_MASK;
+    PUT32(GPIO_DATAOUT, val);
 }
 
-// TODO: Implement timer interrupt handler
-// This function should:
-// 1. Clear the timer interrupt flag (TISR = 0x2)
-// 2. Acknowledge the interrupt to the controller (INTC_CONTROL = 0x1)
-// 3. Print "Tick\n" via UART
+// Implement timer interrupt handler
+// Called from the IRQ exception handler to service timer interrupts
 void timer_irq_handler(void) {
-    // TODO: Implement timer interrupt handler
-    os_write("Timer interrupt handler not yet implemented\n");
+    // 1. Clear the timer overflow interrupt flag
+    PUT32(TISR, 0x2);
+    
+    // 2. Acknowledge the interrupt to the controller
+    PUT32(INTC_CONTROL, 0x1);
+    
+    // 3. Print tick message
+    os_write("Tick\n");
+
+    // Toggle user LEDs to provide visual tick
+    unsigned int dout = GET32(GPIO_DATAOUT);
+    dout ^= USER_LED_MASK;
+    PUT32(GPIO_DATAOUT, dout);
 }
 
 // ============================================================================
@@ -128,10 +172,17 @@ unsigned int rand(void) {
 }
 
 int main(void) {
-    // TODO: Print initialization message
-    // TODO: Initialize the timer using timer_init()
-    // TODO: Enable interrupts using enable_irq()
-    // TODO: Print a message indicating interrupts are enabled
+    // Print initialization message
+    os_write("Starting...\n");
+    
+    // Initialize the timer
+    timer_init();
+    
+    // Print message before enabling interrupts
+    os_write("Enabling interrupts...\n");
+    
+    // Enable interrupts
+    enable_irq();
     
     // Main loop: continuously print random numbers
     while (1) {
