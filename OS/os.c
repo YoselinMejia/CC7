@@ -24,6 +24,7 @@
 // Clock Manager base address
 #define CM_PER_BASE      0x44E00000
 #define CM_PER_TIMER2_CLKCTRL (CM_PER_BASE + 0x80)  // Timer2 Clock Control
+#define CM_PER_GPIO1_CLKCTRL  (CM_PER_BASE + 0xAC)  // GPIO1 Clock Control
 
 // GPIO1 (user LEDs) base and registers (AM335x)
 #define GPIO1_BASE       0x4804C000
@@ -101,10 +102,22 @@ void uart_putnum(unsigned int num) {
 // This function configures DMTIMER2 for a 2-second periodic interrupt
 void timer_init(void) {
     // 1. Enable the timer clock
-    PUT32(CM_PER_TIMER2_CLKCTRL, 0x2);
-    
+    PUT32(CM_PER_GPIO1_CLKCTRL, 0x40002);
+
+    // Enable clock (BMTIMER2)
+    PUT32(CM_PER_TIMER2_CLKCTRL, 0x2);    
+
+
+    //LEds como salida
+    unsigned int val = GET32(GPIO_OE);
+    val &= ~USER_LED_MASK; 
+    PUT32(GPIO_OE, val);
+
+    // Encendemos los LEDs inmediatamente para verificar que el código arrancó
+    PUT32(GPIO_DATAOUT, USER_LED_MASK);
+
     // 2. Unmask IRQ 68 (Timer2) in the interrupt controller
-    PUT32(INTC_MIR_CLEAR2, 0x100);  // Bit 8 corresponds to IRQ 68
+    PUT32(INTC_MIR_CLEAR2, 0x10);  // Bit 4 = 2^4 = IRQ 68 (64+4)
     
     // 3. Configure interrupt priority and mode (IRQ mode, priority 0)
     PUT32(INTC_ILR68, 0x0);
@@ -130,15 +143,13 @@ void timer_init(void) {
     os_write("Timer initialized\n");
 
     // Configure user LEDs GPIO pins as outputs and turn them off
-    unsigned int val;
+    // Eliminada la redeclaración de 'val' para evitar error de compilación
     val = GET32(GPIO_OE);
     val &= ~USER_LED_MASK;    // set as outputs (OE bit = 0 => output)
     PUT32(GPIO_OE, val);
 
-    // Ensure LEDs start off
-    val = GET32(GPIO_DATAOUT);
-    val &= ~USER_LED_MASK;
-    PUT32(GPIO_DATAOUT, val);
+    // Ensure LEDs start off (El timer los encenderá en el primer tick)
+    PUT32(GPIO_DATAOUT, 0);
 }
 
 // Implement timer interrupt handler

@@ -17,14 +17,15 @@ vector_table:
     b fiq_handler        @ 0x1C: FIQ (Fast Interrupt Request)
 
 reset_handler:
-    // Set up stack pointer
-    ldr sp, =_stack_top
+    cps #18             @ Cambiar a modo IRQ (binario 10010)
+    ldr sp, =0x40300000 @ Le damos el mismo tope (o un poco menos)
     
-    // Set up exception vector table base address (VBAR - Vector Base Address Register)
+    cps #19             @ Cambiar a modo Supervisor (binario 10011)
+    ldr sp, =0x402F8000 @ Le damos un espacio diferente para que no choquen
+    
     ldr r0, =vector_table
     mcr p15, 0, r0, c12, c0, 0
     
-    // Call main function
     bl main
     
     // If main returns, loop forever
@@ -46,20 +47,13 @@ data_handler:
 // Implement IRQ handler
 // Saves CPU state, calls C handler, and restores state
 irq_handler:
-    @ Save all registers to stack
-    sub sp, sp, #60          @ Reserve space for 15 registers
-    stmia sp, {r0-r12, lr}   @ Save r0-r12, lr
+    sub lr, lr, #4          @ Ajustar LR para volver a la instrucción correcta
+    stmdb sp!, {r0-r3, r12, lr} @ Guardar registros que C usa
     
-    @ Call the timer interrupt handler in C
-    bl timer_irq_handler
+    bl timer_irq_handler    @ Llamar a tu función en os.c
     
-    @ Restore all registers from stack
-    ldmia sp, {r0-r12, lr}   @ Restore r0-r12, lr
-    add sp, sp, #60          @ Release stack space
+    ldmia sp!, {r0-r3, r12, pc}^ @ Restaurar y volver (el ^ restaura el CPSR)
     
-    @ Return from interrupt (pc = lr - 4)
-    subs pc, lr, #4
-
 fiq_handler:
     b hang
 
@@ -75,19 +69,12 @@ GET32:
     bx lr
 
 // Implement enable_irq function
-// Enables IRQ interrupts by clearing the I-bit in CPSR
+
 .globl enable_irq
 enable_irq:
-    @ Read current CPSR into r0
     mrs r0, cpsr
-    
-    @ Clear bit 7 (I-bit) to enable IRQ interrupts
-    bic r0, r0, #0x80
-    
-    @ Write back to CPSR
+    bic r0, r0, #0x80    @ Limpiar bit I para habilitar IRQ
     msr cpsr, r0
-    
-    @ Return
     bx lr
 
 // Stack space allocation
